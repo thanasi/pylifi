@@ -256,14 +256,27 @@ class RLightField(LightField):
                              x*(self.nu+spacing):(x+1)*self.nu + spacing*x, :] = self.data[y,x]
 
         ## angular dump
+
+        ## this is the slow way - cycle through nu/nv
+        #elif mode is 2:
+        #    outimage = np.zeros((self.ny*self.nv + spacing*(self.nv-1),
+        #                         self.nx*self.nu + spacing*(self.nu-1),
+        #                         self.ncolor), order="C", dtype=np.float32)
+        #    for v in xrange(self.nv):
+        #        for u in xrange(self.nu):
+        #            outimage[v*(self.ny+spacing):(v+1)*self.ny + spacing*v,
+        #                     u*(self.nx+spacing):(u+1)*self.nx + spacing*u, :] = self.data[:,:,v,u,:]
+
+        ## this is the faster way - assuming that there are more pixels than cameras
         elif mode is 2:
             outimage = np.zeros((self.ny*self.nv + spacing*(self.nv-1),
                                  self.nx*self.nu + spacing*(self.nu-1),
                                  self.ncolor), order="C", dtype=np.float32)
-            for v in xrange(self.nv):
-                for u in xrange(self.nu):
-                    outimage[v*(self.ny+spacing):(v+1)*self.ny + spacing*v,
-                             u*(self.nx+spacing):(u+1)*self.nx + spacing*u, :] = self.data[:,:,v,u,:]
+
+            for y in xrange(self.ny):
+                for x in xrange(self.nx):
+                    outimage[y:outimage.shape[0]:self.ny + spacing,
+                             x:outimage.shape[1]:self.nx + spacing, :] = self.data[y,x]
 
         else:
             raise LFGenError("Only two dump modes supported. Dump aborted.")
