@@ -23,7 +23,6 @@ class LFSizeError(Exception):
     def __str__(self):
         return repr(self.value)
 
-
 class LFShapeError(Exception):
     def __init__(self, value):
         self.value = value
@@ -31,8 +30,14 @@ class LFShapeError(Exception):
     def __str__(self):
         return repr(self.value)
 
-
 class LFClassError(Exception):
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return repr(self.value)
+
+class LFGenError(Exception):
     def __init__(self, value):
         self.value = value
 
@@ -52,46 +57,38 @@ class RLightField(object):
         aperture
         acx,acy
         fpix
-        spacing
 
 
     """
 
-    def __init__(self, data=None, nx=1, ny=1, nu=1, nv=1, colors=1, mask=None, aperture=1, fpix=0, spac=None, acx=None, acy=None):
+    def __init__(self, data=None, nx=1, ny=1, nu=1, nv=1, colors=1, mask=None, aperture=1, fpix=0, acx=None, acy=None):
 
-        if data is None:
-            ## image resolution
-            self.nv = nv
-            self.nu = nu
-
-            ## array size
-            self.ny = ny
-            self.nx = nx
-
-            ## number of color channels (grayscale vs rgb)
-            self.ncolor = colors
-
-            ## set lightfield data
-            ## 5D array with each dimension indexed by:
-            ## y_cam, x_cam, i, j, rgb/gray
-            self.data = np.empty([ny,nx,nv,nu,colors],
-                                 order="C",
-                                 dtype=np.float32)
-        else:
+        if data is not None:
             if not isinstance(data, np.ndarray):
                 raise LFClassError("Please supply data in numpy ndarray format. Light field not initialized.")
 
             ny,nx,nv,nu,colors = data.shape
-            self.nv = nv
-            self.nu = nu
 
-            ## array size
-            self.ny = ny
-            self.nx = nx
+        ## image resolution
+        self.nv = nv
+        self.nu = nu
 
-            ## number of color channels (grayscale vs rgb)
-            self.ncolor = colors
+        ## array size
+        self.ny = ny
+        self.nx = nx
 
+        ## number of color channels (grayscale vs rgb)
+        self.ncolor = colors
+
+        ## set lightfield data
+        ## 5D array with each dimension indexed by:
+        ## y_cam, x_cam, i, j, rgb/gray
+        self.data = np.empty([ny,nx,nv,nu,colors],
+                             order="C",
+                             dtype=np.float32)
+
+
+        if data is not None:
             self.set_data(data)
 
         ## 2D mask for which camera views to use
@@ -113,10 +110,7 @@ class RLightField(object):
         self.aperture = aperture
         self.set_aperture(aperture) ## set the depth of field by modifying aperture; default to max
         self.fpix = fpix
-        self.set_focus(fpix) 	  ## set the focus; default to
-
-        ## [optional] real-world grid spacing in (dx,dy) format
-        self.spacing = spac
+        self.set_focus(fpix) 	  ## set the focus; default to 0
 
         ## changed tracks whether or not we need to
         ## re-render before outputting the reconstructed image
@@ -144,20 +138,38 @@ class RLightField(object):
 
         return p
 
-    def dump(self, mode=0, subframe=None):
+    def dump(self, mode=1, spacing=0):
         """
-        dump the light field data as one giant image
-        in one of two formats:
-        0 - spatial (each subframe shows an individual camera capture)
-        1 - angular (each subframe shows all of the light entering from a given direction)
-
-
-        if subframe is None, then all subframes will be compiled into one giant image
-        if subframe is a list, then dump will return a list where each element is the specified subframe
+        dump the light field data as one giant image in one of two formats:
+        1 - spatial (each subframe shows an individual camera capture)
+        2 - angular (each subframe shows all of the light entering from a given direction)
 
         """
 
-        pass
+        ## spatial dump
+        if mode is 1:
+            outimage = np.zeros((self.ny*self.nv + spacing*(self.ny-1),
+                                 self.nx*self.nu + spacing*(self.nx-1),
+                                 self.ncolor), order="C", dtype=np.float32)
+            for y in xrange(self.ny):
+                for x in xrange(self.nx):
+                    outimage[y*(self.nv+spacing):(y+1)*(self.nv) + spacing*y,
+                             x*(self.nu+spacing):(x+1)*(self.nu) + spacing*x, :] = self.data[y,x]
+
+        ## angular dump
+        elif mode is 2:
+            outimage = np.zeros((self.ny*self.nv + spacing*(self.nv-1),
+                                 self.nx*self.nu + spacing*(self.nu-1),
+                                 self.ncolor), order="C", dtype=np.float32)
+            for v in xrange(self.nv):
+                for u in xrange(self.nu):
+                    outimage[v*(self.ny+spacing):(v+1)*(self.ny) + spacing*v,
+                             u*(self.nx+spacing):(u+1)*(self.nx) + spacing*u, :] = self.data[:,:,v,u,:]
+
+        else:
+            raise LFGenError("Only two dump modes supported. Dump aborted.")
+
+        return outimage.copy()
 
     def render(self, outputLF=False):
 
@@ -216,7 +228,7 @@ class RLightField(object):
             np.copyto(newLF.data, self.data)
             newLF.aperture = self.aperture
             newLF.fpix= self.fpix
-            newLF.spacing = self.spacing
+            #newLF.spacing = self.spacing
             newLF.output = np.empty_like(self.output)
             np.copyto(newLF.output, self.output)
 
