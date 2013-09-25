@@ -44,7 +44,63 @@ class LFGenError(Exception):
     def __str__(self):
         return repr(self.value)
 
-class RLightField(object):
+
+class LightField(object):
+    """
+    Skeleton class for Light Field objects
+
+    outlines basic functions that subclasses should overwrite
+
+    """
+
+    def __init__(self):
+        self.data = None
+        self.nu = 0
+        self.nv = 0
+        self.ncolor = 0
+        self.fpix = 0
+        self.aperture = 0
+        self.changed = True
+
+    def set_data(self, d):
+        self.changed=True
+        np.copyto(self.data, d)
+
+    def set_focus(self, f):
+        self.changed=True
+        self.fpix = f
+
+    def set_aperture(self, ap):
+        self.changed=True
+        self.aperture=ap
+
+    def get_data(self):
+        return self.data.copy()
+
+    def get_params(self):
+        p = {"focus" : self.fpix,
+             "aperture" : self.aperture,
+             "nv": self.nv,
+             "nu": self.nu,
+             "ncolor": self.ncolor}
+
+        return p
+
+    def dump(self, mode):
+        """ this should dump data based on mode : either spatially organized or angularly organized """
+        pass
+
+    def render(self):
+        """ render an image based on current parameters """
+        pass
+
+    def copy(self, newLF):
+        ## set up the properties of the new lightfield
+        ## then copy in the data (use np.copyto)
+        pass
+
+
+class RLightField(LightField):
     """
     RectLightField - Light Field from samples on a rectangular grid
 
@@ -62,6 +118,7 @@ class RLightField(object):
     """
 
     def __init__(self, data=None, nx=1, ny=1, nu=1, nv=1, colors=1, mask=None, aperture=1, fpix=0, acx=None, acy=None):
+        super(RLightField,self).__init__()
 
         if data is not None:
             if not isinstance(data, np.ndarray):
@@ -86,7 +143,6 @@ class RLightField(object):
         self.data = np.empty([ny,nx,nv,nu,colors],
                              order="C",
                              dtype=np.float32)
-
 
         if data is not None:
             self.set_data(data)
@@ -119,6 +175,49 @@ class RLightField(object):
         ## data structure to hold output lightfield and image
         self.LFout = np.empty([ny,nx,nv,nu,colors], order="C", dtype=np.float32)
         self.output = np.empty([nv,nu,colors], order="C", dtype=np.float32)
+
+    def set_data(self, data):
+        """ set the lightfield data """
+
+        if data.ndim != 5:
+            raise LFSizeError("Expected data to have 5 dimensions, instead found %d. set_data() aborted." % data.ndim)
+        elif data.shape != self.data.shape:
+            raise LFShapeError("Expected data to have shape %s and instead found %s. set_data() aborted." % (str(self.data.shape), str(data.shape)))
+        else:
+            self.changed = True
+            np.copyto(self.data, data)
+
+    def set_focus(self, foc):
+        self.changed = True
+        self.fpix = foc
+
+    def set_center(self, acx,acy):
+        self.changed = True
+        self.acx = acx
+        self.acy = acy
+        self.set_aperture(self.aperture)
+
+    def set_aperture(self, ap):
+        self.changed = True
+        self.aperture = max(ap, 0.5)				## lower bound at .5
+        self.aperture = min(ap, self.nx, self.ny)	## upper bound at edge length
+
+        ## set a circular aperture
+        XX,YY = np.mgrid[:self.nx, :self.ny]
+        x = XX - self.acx
+        y = YY - self.acy
+
+        mask = (np.sqrt(x**2 + y**2) < self.aperture/2).astype(np.float32)
+        self.set_mask(mask)
+
+    def set_mask(self, mask):
+        self.changed = True
+        np.copyto(self.mask, mask)
+
+    def multiply_mask(self, mult):
+        self.changed = True
+        self.mask *= mult
+
 
     def get_data(self):
         """ get the raw data """
@@ -153,8 +252,8 @@ class RLightField(object):
                                  self.ncolor), order="C", dtype=np.float32)
             for y in xrange(self.ny):
                 for x in xrange(self.nx):
-                    outimage[y*(self.nv+spacing):(y+1)*(self.nv) + spacing*y,
-                             x*(self.nu+spacing):(x+1)*(self.nu) + spacing*x, :] = self.data[y,x]
+                    outimage[y*(self.nv+spacing):(y+1)*self.nv + spacing*y,
+                             x*(self.nu+spacing):(x+1)*self.nu + spacing*x, :] = self.data[y,x]
 
         ## angular dump
         elif mode is 2:
@@ -163,8 +262,8 @@ class RLightField(object):
                                  self.ncolor), order="C", dtype=np.float32)
             for v in xrange(self.nv):
                 for u in xrange(self.nu):
-                    outimage[v*(self.ny+spacing):(v+1)*(self.ny) + spacing*v,
-                             u*(self.nx+spacing):(u+1)*(self.nx) + spacing*u, :] = self.data[:,:,v,u,:]
+                    outimage[v*(self.ny+spacing):(v+1)*self.ny + spacing*v,
+                             u*(self.nx+spacing):(u+1)*self.nx + spacing*u, :] = self.data[:,:,v,u,:]
 
         else:
             raise LFGenError("Only two dump modes supported. Dump aborted.")
@@ -231,48 +330,6 @@ class RLightField(object):
             #newLF.spacing = self.spacing
             newLF.output = np.empty_like(self.output)
             np.copyto(newLF.output, self.output)
-
-    def set_data(self, data):
-        """ set the lightfield data """
-
-        if data.ndim != 5:
-            raise LFSizeError("Expected data to have 5 dimensions, instead found %d. set_data() aborted." % data.ndim)
-        elif data.shape != self.data.shape:
-            raise LFShapeError("Expected data to have shape %s and instead found %s. set_data() aborted." % (str(self.data.shape), str(data.shape)))
-        else:
-            self.changed = True
-            np.copyto(self.data, data)
-
-    def set_focus(self, foc):
-        self.changed = True
-        self.fpix = foc
-
-    def set_center(self, acx,acy):
-        self.changed = True
-        self.acx = acx
-        self.acy = acy
-        self.set_aperture(self.aperture)
-
-    def set_aperture(self, ap):
-        self.changed = True
-        self.aperture = max(ap, 0.5)				## lower bound at .5
-        self.aperture = min(ap, self.nx, self.ny)	## upper bound at edge length
-
-        ## set a circular aperture
-        XX,YY = np.mgrid[:self.nx, :self.ny]
-        x = XX - self.acx
-        y = YY - self.acy
-
-        mask = (np.sqrt(x**2 + y**2) < self.aperture/2).astype(np.float32)
-        self.set_mask(mask)
-
-    def set_mask(self, mask):
-        self.changed = True
-        np.copyto(self.mask, mask)
-
-    def multiply_mask(self, mult):
-        self.changed = True
-        self.mask *= mult
 
 
 
