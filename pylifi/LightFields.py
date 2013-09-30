@@ -15,6 +15,8 @@ import numpy as np
 import scipy.ndimage as ndi
 # import pylab as pl
 
+from MatchFeats import get_dxdy
+
 
 class LFSizeError(Exception):
     def __init__(self, value):
@@ -49,17 +51,20 @@ class LightField(object):
     """
     Skeleton class for Light Field objects
 
-    outlines basic functions that subclasses should overwrite
+    outlines basic variables and functions that subclasses should implement
 
     """
 
     def __init__(self):
         self.data = None
+        self.depth_field = None
         self.nu = 0
         self.nv = 0
         self.ncolor = 0
         self.fpix = 0
         self.aperture = 0
+        self.acx = 0
+        self.acy = 0
         self.changed = True
 
     def set_data(self, d):
@@ -77,9 +82,14 @@ class LightField(object):
     def get_data(self):
         return self.data.copy()
 
+    def get_depth(self):
+        return self.depth_field
+
     def get_params(self):
         p = {"focus" : self.fpix,
              "aperture" : self.aperture,
+             "xcenter" : self.acx,
+             "ycenter" : self.acy,
              "nv": self.nv,
              "nu": self.nu,
              "ncolor": self.ncolor}
@@ -90,13 +100,18 @@ class LightField(object):
         """ this should dump data based on mode : either spatially organized or angularly organized """
         pass
 
+    def calc_depth(self):
+        """ calculate the depth field for a given image """
+
     def render(self):
         """ render an image based on current parameters """
         pass
 
     def copy(self, newLF):
-        ## set up the properties of the new lightfield
-        ## then copy in the data (use np.copyto)
+        """
+        set up the properties of the new lightfield
+        then copy in the data (use np.copyto)
+        """
         pass
 
 
@@ -114,10 +129,11 @@ class RLightField(LightField):
         acx,acy
         fpix
 
-
     """
 
-    def __init__(self, data=None, nx=1, ny=1, nu=1, nv=1, colors=1, mask=None, aperture=1, fpix=0, acx=None, acy=None):
+    def __init__(self, data=None, nx=1, ny=1, nu=1, nv=1, colors=1,
+                 mask=None, aperture=1, fpix=0, acx=None, acy=None):
+
         super(RLightField,self).__init__()
 
         if data is not None:
@@ -197,13 +213,15 @@ class RLightField(LightField):
         self.acy = acy
         self.set_aperture(self.aperture)
 
-    def set_aperture(self, ap):
+    def set_aperture(self, ap, constricted=True):
         self.changed = True
         self.aperture = max(ap, 0.5)				## lower bound at .5
-        self.aperture = min(ap, self.nx, self.ny)	## upper bound at edge length
+
+        if constricted:
+            self.aperture = min(ap, self.nx, self.ny)	## upper bound at shortest edge length
 
         ## set a circular aperture
-        XX,YY = np.mgrid[:self.nx, :self.ny]
+        YY,XX = np.mgrid[:self.ny, :self.nx]
         x = XX - self.acx
         y = YY - self.acy
 
@@ -217,7 +235,6 @@ class RLightField(LightField):
     def multiply_mask(self, mult):
         self.changed = True
         self.mask *= mult
-
 
     def get_data(self):
         """ get the raw data """
@@ -283,6 +300,11 @@ class RLightField(LightField):
 
         return outimage.copy()
 
+    def calc_depth(self):
+        """ calculate the depth field """
+
+        pass
+
     def render(self, outputLF=False):
 
         ## if we need to update the rendered image, then do so
@@ -304,14 +326,17 @@ class RLightField(LightField):
                 for x in xrange(self.nx):
                     for c in xrange(self.ncolor):
                         ## map coordinates with linear spline interpolation
-                        U1 = UU + self.fpix * (x - self.acx + 1)
-                        V1 = VV - self.fpix * (y - self.acy + 1)
-                        I[:,:,c] = ndi.interpolation.map_coordinates(self.data[y,x,:,:,c], [V1,U1],
-                                                                     order=1, mode='constant')
+                        if w[y,x] != 0:
+                            U1 = UU + self.fpix * (x - self.acx + 1)
+                            V1 = VV - self.fpix * (y - self.acy + 1)
+                            I[:,:,c] = ndi.interpolation.map_coordinates(self.data[y,x,:,:,c], [V1,U1],
+                                                                         order=1, mode='constant')
+                        else:
+                            I[:,:,c] = 0
 
 
                     ## copy resampled image to output LightField
-                    self.LFout[x,y] =  (I * w[y,x]).copy()
+                    self.LFout[y,x] =  (I * w[y,x]).copy()
             ## generate output image by adding the (weighted) resampled images
             self.output = self.LFout.sum((0,1))
             self.changed = False

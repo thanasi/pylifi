@@ -15,7 +15,7 @@ import numpy as np
 import LightFields
 
 
-# def lf_to_vol(lightfield):
+# def lf_to_depth(lightfield):
 # 	""" 
 # 	convert light field data into a 3D volume 
 
