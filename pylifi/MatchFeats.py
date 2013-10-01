@@ -67,3 +67,25 @@ def get_dxdy(im1,im2, nkeep=100):
     dda = np.median(da)
 
     return ddx,ddy
+
+def align_images(im1, im2):
+    """ return warped version of im2 that maps onto im1 """
+
+    if im1.ndim == 3:
+        assert im1.shape[2] == 1, "align_images() : please only input grayscale images"
+        assert im2.shape[2] == 1, "align_images() : please only input grayscale images"
+
+    if im1.dtype is not np.dtype("np.uint8"):
+        if im1.max() < 1:
+            im1 *= 255
+        im1 = im1.astype(np.uint8)
+    if im2.dtype is not np.dtype("np.uint8"):
+        if im2.max() < 1:
+            im2 *= 255
+        im2 = im2.astype(np.uint8)
+
+    T = cv2.estimateRigidTransform(im2, im1, False)
+    T = np.append(T, [[0,0,1]], axis=0)
+    wIm = cv2.warpPerspective(im2, T, im2.shape[::-1])
+
+    return wIm

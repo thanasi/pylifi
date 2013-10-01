@@ -158,7 +158,7 @@ class RLightField(LightField):
         ## y_cam, x_cam, i, j, rgb/gray
         self.data = np.empty([ny,nx,nv,nu,colors],
                              order="C",
-                             dtype=np.float32)
+                             dtype=np.uint8)
 
         if data is not None:
             self.set_data(data)
@@ -201,6 +201,12 @@ class RLightField(LightField):
             raise LFShapeError("Expected data to have shape %s and instead found %s. set_data() aborted." % (str(self.data.shape), str(data.shape)))
         else:
             self.changed = True
+
+            if data.max() <= 1:
+                data *= 255
+            if data.dtype is not np.dtype('uint8'):
+                data = data.astype(np.uint8)
+
             np.copyto(self.data, data)
 
     def set_focus(self, foc):
@@ -247,6 +253,8 @@ class RLightField(LightField):
         p = {"focus" : self.fpix,
              "aperture" : self.aperture,
              "nv": self.nv,
+             "xcenter" : self.acx,
+             "ycenter" : self.acy,
              "nu": self.nu,
              "ny": self.ny,
              "nx": self.nx,
@@ -305,7 +313,7 @@ class RLightField(LightField):
 
         pass
 
-    def render(self, outputLF=False):
+    def render(self, outType='mean', outputLF=False):
 
         ## if we need to update the rendered image, then do so
         if self.changed:
@@ -314,7 +322,10 @@ class RLightField(LightField):
             VV,UU = np.mgrid[:self.nv, :self.nu]
 
             ## set normalized weights
-            w = self.mask / self.mask.sum()
+            w = self.mask
+
+            if not(outType in ['median','majority']):
+                w /= self.mask.sum()
 
             ## clear any old renderings
             self.LFout = np.empty([self.ny,self.nx, self.nv, self.nu, self.ncolor], order="C", dtype=np.float32)
@@ -327,8 +338,8 @@ class RLightField(LightField):
                     for c in xrange(self.ncolor):
                         ## map coordinates with linear spline interpolation
                         if w[y,x] != 0:
-                            U1 = UU + self.fpix * (x - self.acx + 1)
-                            V1 = VV - self.fpix * (y - self.acy + 1)
+                            U1 = UU + self.fpix * (x - self.acx)
+                            V1 = VV - self.fpix * (y - self.acy)
                             I[:,:,c] = ndi.interpolation.map_coordinates(self.data[y,x,:,:,c], [V1,U1],
                                                                          order=1, mode='constant')
                         else:
@@ -337,8 +348,38 @@ class RLightField(LightField):
 
                     ## copy resampled image to output LightField
                     self.LFout[y,x] =  (I * w[y,x]).copy()
-            ## generate output image by adding the (weighted) resampled images
+        ## generate output image based on desired reconstruction method
+        if np.char.lower(outType) == 'median':
+            ## get grid sampling points for the images
+            VV,UU = np.mgrid[:self.nv, :self.nu]
+
+            medianVote = lambda V,U,C: np.median(self.LFout[:,:,V,U,c])
+            vf = np.vectorize(medianVote, excluded={'c'})
+            for c in range(3):
+                self.output[:,:,c] = vf(VV.flat, UU.flat, c).reshape(self.nv,self.nu)
+
+        if np.char.lower(outType) == 'majority':
+            ## get grid sampling points for the images
+            VV,UU = np.mgrid[:self.nv, :self.nu]
+            def popVote(V,U,c):
+                h,b = np.histogram(self.LFout[:,:,V,U,c].flat, bins=np.arange(-.5,256.5,1))
+                b = np.arange(256)
+                if h.max() <= self.mask.sum()//2:
+                    out = 0
+                else:
+                    out = b[h==h.max()][0]
+
+                return out
+
+
+            vfunc = np.vectorize(popVote, excluded={'c'})
+            for c in range(3):
+                self.output[:,:,c] = vfunc(VV.flat, UU.flat, c).reshape(self.nv,self.nu)
+
+        else:
             self.output = self.LFout.sum((0,1))
+
+
             self.changed = False
 
         if outputLF:
@@ -369,34 +410,3 @@ class RLightField(LightField):
             newLF.output = np.empty_like(self.output)
             np.copyto(newLF.output, self.output)
 
-
-
-# class ULightField(object):
-# 	"""
-# 	ULightField - Light Field from unstructured sampling points
-
-# 	"""
-
-# 	def __init__(self):
-# 		pass
-
-# 	def set_data(self):
-# 		pass
-
-# 	def get_data(self):
-# 		pass
-
-# 	def refocus(self):
-# 		pass
-
-# 	def set_DoF(self):
-# 		pass
-
-# 	def dump(self, mode=0):
-# 		pass
-
-# 	def render(self):
-# 		pass
-
-# 	def copy(self):
-# 		pass
